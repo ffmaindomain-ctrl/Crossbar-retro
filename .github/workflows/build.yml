@@ -1,0 +1,58 @@
+name: Build Crossbar Retro
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack the project if it was uploaded as a zip
+        run: |
+          if [ ! -f settings.gradle ]; then
+            Z=$(ls *.zip 2>/dev/null | head -1)
+            if [ -z "$Z" ]; then echo "::error::No project found. Upload crossbar-retro.zip to the repository."; exit 1; fi
+            unzip -o -q "$Z" -d _unpacked
+            SRC=$(dirname "$(find _unpacked -name settings.gradle | head -1)")
+            cp -a "$SRC"/. .
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Download emulator engines
+        run: bash scripts/fetch-cores.sh
+
+      - name: Build the APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }}
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/release/app-release.apk CrossbarRetro-${{ github.run_number }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CrossbarRetro-apk
+          path: CrossbarRetro-*.apk
+
+      - name: Publish a release you can download on your phone
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Crossbar Retro build ${{ github.run_number }}
+          body: Tap the .apk below to download, then open it to install.
+          files: CrossbarRetro-*.apk
+          make_latest: true
